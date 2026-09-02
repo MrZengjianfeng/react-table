@@ -1,0 +1,45 @@
+.app-layout {
+  min-height: 100%;
+}
+
+.app-logo {
+  height: 64px;
+  margin: 0 16px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #fff;
+  font-size: 16px;
+  font-weight: 600;
+  letter-spacing: 0.3px;
+  white-space: nowrap;
+  overflow: hidden;
+}
+
+.app-header {
+  display: flex;
+  align-items: center;
+  height: 64px;
+  padding: 0 24px;
+  background: #fff;
+  border-bottom: 1px solid #f0f0f0;
+}
+
+.app-title {
+  margin: 0 !important;
+}
+
+.app-content {
+  margin: 24px;
+}
+
+.app-card {
+  background: #fff;
+  border-radius: 8px;
+  padding: 24px;
+  min-height: calc(100vh - 64px - 48px);
+}
+
+.app-toolbar {
+  margin-bottom: 16px;
+}
