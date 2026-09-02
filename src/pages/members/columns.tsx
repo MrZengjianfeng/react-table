@@ -167,6 +167,12 @@ export function getColumns(
               controls={false}
               keyboard={false}
               style={{ width: "100%" }}
+              onFocus={() => {
+                console.log(`${field.name}年龄focus`);
+              }}
+              onBlur={() => {
+                console.log(`${field.name}年龄blur`);
+              }}
             />
           </Form.Item>
         </NavCell>
@@ -202,7 +208,15 @@ export function getColumns(
             style={cellFormItem}
             rules={[{ type: "email", message: "邮箱格式不正确" }]}
           >
-            <Input placeholder="邮箱" />
+            <Input
+              placeholder="邮箱"
+              onFocus={() => {
+                console.log(`${field.name}邮箱focus`);
+              }}
+              onBlur={() => {
+                console.log(`${field.name}邮箱blur`);
+              }}
+            />
           </Form.Item>
         </NavCell>
       ),
