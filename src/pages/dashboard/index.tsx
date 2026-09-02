@@ -1,3 +1,4 @@
+/** 工作台占位页，引导去成员管理。 */
 import { Typography } from 'antd'
 
 export default function Dashboard() {

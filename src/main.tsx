@@ -1,3 +1,7 @@
+/**
+ * 入口：中文 Ant Design + 路由。
+ * `/` 重定向到 `/members`，成员表是当前主功能。
+ */
 import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
 import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom'

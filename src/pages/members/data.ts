@@ -1,3 +1,8 @@
+/**
+ * 成员页初始数据。
+ * initialMembers：进入页面时的演示数据。
+ * emptyMember：点「新增成员」时 Form.List.add 用的空行模板。
+ */
 import type { Member } from "./type/member";
 
 export const initialMembers: Member[] = [

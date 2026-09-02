@@ -1,4 +1,16 @@
-import { useState, type ReactNode } from "react";
+/**
+ * 成员表列定义。
+ *
+ * 数据源不是 Member[]，而是 Form.List 产出的 FormListFieldData[]。
+ * 每个单元格用 Form.Item name={[field.name, '字段名']} 绑到对应成员字段。
+ *
+ * 键盘导航相关：
+ * - 可编辑格包一层 NavCell，写入 data-nav-row / data-nav-col。
+ * - col 必须连续且与视觉列一致，导航按这个坐标跳。
+ * - 「电话」是只读展示，没有 NavCell，方向键会跳过它。
+ * - Select / DatePicker 用 NavSelect、NavDatePicker：收到 TABLE_NAV_OPEN_EVENT 后打开面板。
+ */
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import {
   Button,
   DatePicker,
@@ -15,52 +27,63 @@ import type {
   TableProps,
 } from "antd";
 import dayjs from "dayjs";
+import { TABLE_NAV_OPEN_EVENT } from "./useTableKeyboardNav";
 
+/** 单元格里的 Form.Item 去掉默认下边距，避免撑高行。 */
 const cellFormItem = { marginBottom: 0 };
 
-function shouldOpenFromNav(target: EventTarget | null) {
-  return (
-    target instanceof Element &&
-    Boolean(target.closest("[data-nav-open-popup]"))
-  );
+/**
+ * 把 Select / DatePicker 的 open 交给键盘导航控制。
+ * wrapRef 用来找到外层 NavCell，监听 TABLE_NAV_OPEN_EVENT。
+ */
+function useNavPopup() {
+  const wrapRef = useRef<HTMLSpanElement>(null);
+  const [open, setOpen] = useState(false);
+
+  useEffect(() => {
+    const cell = wrapRef.current?.closest("[data-nav-row][data-nav-col]");
+    if (!cell) return;
+    const onOpen = () => setOpen(true);
+    cell.addEventListener(TABLE_NAV_OPEN_EVENT, onOpen);
+    return () => cell.removeEventListener(TABLE_NAV_OPEN_EVENT, onOpen);
+  }, []);
+
+  return { wrapRef, open, setOpen };
 }
 
 function NavSelect(props: SelectProps) {
-  const [open, setOpen] = useState(false);
+  const { wrapRef, open, setOpen } = useNavPopup();
   return (
-    <Select
-      {...props}
-      open={open}
-      onOpenChange={(next) => {
-        setOpen(next);
-        props.onOpenChange?.(next);
-      }}
-      onFocus={(event) => {
-        if (shouldOpenFromNav(event.target)) setOpen(true);
-        props.onFocus?.(event);
-      }}
-    />
+    <span ref={wrapRef} style={{ display: "block" }}>
+      <Select
+        {...props}
+        open={open}
+        onOpenChange={(next) => {
+          setOpen(next);
+          props.onOpenChange?.(next);
+        }}
+      />
+    </span>
   );
 }
 
 function NavDatePicker(props: DatePickerProps) {
-  const [open, setOpen] = useState(false);
+  const { wrapRef, open, setOpen } = useNavPopup();
   return (
-    <DatePicker
-      {...props}
-      open={open}
-      onOpenChange={(next) => {
-        setOpen(next);
-        props.onOpenChange?.(next);
-      }}
-      onFocus={(event, info) => {
-        if (shouldOpenFromNav(event.target)) setOpen(true);
-        props.onFocus?.(event, info);
-      }}
-    />
+    <span ref={wrapRef} style={{ display: "block" }}>
+      <DatePicker
+        {...props}
+        open={open}
+        onOpenChange={(next) => {
+          setOpen(next);
+          props.onOpenChange?.(next);
+        }}
+      />
+    </span>
   );
 }
 
+/** 只读电话。Form.Item 仍要挂 name，保存时才能带上 telephone。 */
 function TelephoneText({ value }: { value?: string }) {
   return <span>{value || "-"}</span>;
 }
@@ -137,10 +160,12 @@ export function getColumns(
       render: (_, field) => (
         <NavCell row={field.name} col={3}>
           <Form.Item name={[field.name, "age"]} style={cellFormItem}>
+            {/* keyboard={false}：交给表格导航处理上下键，避免改数字 */}
             <InputNumber
               min={18}
               max={70}
               controls={false}
+              keyboard={false}
               style={{ width: "100%" }}
             />
           </Form.Item>
@@ -225,6 +250,10 @@ export function getColumns(
       width: 150,
       render: (_, field) => (
         <NavCell row={field.name} col={9}>
+          {/*
+            DatePicker 要 dayjs，表单里存 YYYY-MM-DD 字符串。
+            getValueProps：读表单值时转 dayjs；normalize：写回时再格式化成字符串。
+          */}
           <Form.Item
             name={[field.name, "joinDate"]}
             style={cellFormItem}

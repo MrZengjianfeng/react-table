@@ -1,3 +1,7 @@
+/**
+ * 应用壳：左侧菜单 + 顶栏标题 + 内容区 Outlet。
+ * 菜单 key 就是路由 path，点击后 navigate。
+ */
 import { useState } from 'react'
 import { Outlet, useLocation, useNavigate } from 'react-router-dom'
 import { Layout, Menu, Typography } from 'antd'

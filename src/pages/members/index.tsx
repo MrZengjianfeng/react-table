@@ -1,3 +1,12 @@
+/**
+ * 成员管理页。
+ *
+ * 用 Form.List 管成员数组，Table 只负责展示。fields 既是表格 dataSource，
+ * 也是每行 Form.Item 的 name 索引。新增 / 删除走 List 的 add / remove，
+ * 表单值和表格行始终一致。
+ *
+ * 键盘导航挂在表格外层：data-table-keyboard-nav + onKeyDownCapture。
+ */
 import { Button, Flex, Form, Table, message } from "antd";
 import { PlusOutlined } from "@ant-design/icons";
 import type { FormListFieldData } from "antd";

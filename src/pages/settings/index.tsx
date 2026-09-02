@@ -1,3 +1,4 @@
+/** 系统设置占位页，尚未实现。 */
 import { Typography } from 'antd'
 
 export default function Settings() {

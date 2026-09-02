@@ -1,3 +1,5 @@
+/* 全局：html/body/#root 拉满视口，背景留给侧栏布局 */
+
 *,
 *::before,
 *::after {
