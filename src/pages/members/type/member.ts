@@ -21,6 +21,10 @@ export interface Member {
   department: string;
   position: string;
   city: string;
+  /** 只读展示，不参与键盘导航。 */
+  emergencyContact: string;
+  /** 只读展示，不参与键盘导航。 */
+  emergencyPhone: string;
   joinDate: string;
   status: MemberStatus;
 }

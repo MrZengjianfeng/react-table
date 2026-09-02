@@ -43,7 +43,7 @@ export default function Members() {
                 columns={getColumns(remove)}
                 dataSource={fields}
                 pagination={false}
-                scroll={{ x: 1750 }}
+                scroll={{ x: 2020 }}
               />
             </div>
           </>

@@ -7,7 +7,7 @@
  * 键盘导航相关：
  * - 可编辑格包一层 NavCell，写入 data-nav-row / data-nav-col。
  * - col 必须连续且与视觉列一致，导航按这个坐标跳。
- * - 「电话」是只读展示，没有 NavCell，方向键会跳过它。
+ * - 「电话」「紧急联系人」「紧急联系人电话」只读，没有 NavCell，方向键会跳过。
  * - Select / DatePicker 用 NavSelect、NavDatePicker：收到 TABLE_NAV_OPEN_EVENT 后打开面板。
  */
 import { useEffect, useRef, useState, type ReactNode } from "react";
@@ -83,8 +83,8 @@ function NavDatePicker(props: DatePickerProps) {
   );
 }
 
-/** 只读电话。Form.Item 仍要挂 name，保存时才能带上 telephone。 */
-function TelephoneText({ value }: { value?: string }) {
+/** 只读文本。Form.Item 仍要挂 name，保存时才能带上字段值。 */
+function ReadonlyText({ value }: { value?: string }) {
   return <span>{value || "-"}</span>;
 }
 
@@ -194,7 +194,7 @@ export function getColumns(
       width: 150,
       render: (_, field) => (
         <Form.Item name={[field.name, "telephone"]} style={cellFormItem}>
-          <TelephoneText />
+          <ReadonlyText />
         </Form.Item>
       ),
     },
@@ -257,6 +257,27 @@ export function getColumns(
             <Input placeholder="城市" />
           </Form.Item>
         </NavCell>
+      ),
+    },
+    {
+      title: "紧急联系人",
+      width: 120,
+      render: (_, field) => (
+        <Form.Item
+          name={[field.name, "emergencyContact"]}
+          style={cellFormItem}
+        >
+          <ReadonlyText />
+        </Form.Item>
+      ),
+    },
+    {
+      title: "紧急联系人电话",
+      width: 150,
+      render: (_, field) => (
+        <Form.Item name={[field.name, "emergencyPhone"]} style={cellFormItem}>
+          <ReadonlyText />
+        </Form.Item>
       ),
     },
     {
