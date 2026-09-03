@@ -9,7 +9,7 @@
  * - col 必须连续且与视觉列一致，导航按这个坐标跳。
  * - 「电话」「紧急联系人」「紧急联系人电话」只读，没有 NavCell，方向键会跳过。
  * - Select / DatePicker 用 NavSelect、NavDatePicker：收到 TABLE_NAV_OPEN_EVENT 后打开面板。
- * - Select 聚焦时 Ctrl+↑ / Ctrl+↓ 切换上一个 / 下一个选项，到头不再循环。
+ * - Select 聚焦时 Ctrl+↑ / Ctrl+← 上一项，Ctrl+↓ / Ctrl+→ 下一项，到头不再循环。
  * - DatePicker 聚焦时 Ctrl+↑↓ 加减 7 天，Ctrl+←→ 加减 1 天。
  */
 import {
@@ -61,7 +61,7 @@ function useNavPopup() {
 
 /**
  * 可切换的选项：去掉禁用项，并摊平 group。
- * Ctrl+↑↓ 只在这些项之间走，避免选到不能选的值。
+ * Ctrl+方向键只在这些项之间走，避免选到不能选的值。
  */
 function getSelectableOptions(options: SelectProps["options"]) {
   const flattened = (options ?? []).flatMap((opt) => {
@@ -80,7 +80,7 @@ function getSelectableOptions(options: SelectProps["options"]) {
 }
 
 /**
- * 算出 Ctrl+↑ / Ctrl+↓ 的下一项。
+ * 算出 Ctrl+方向键的下一项。↑← 上一项，↓→ 下一项。
  * 已经在第一项再向上、最后一项再向下：返回 undefined，调用方不改值。
  * 当前没有值时：只允许向下落到第一项。
  */
@@ -109,7 +109,13 @@ function NavSelect(props: SelectProps) {
     if (!event.ctrlKey || event.altKey || event.metaKey || event.shiftKey) {
       return;
     }
-    if (event.key !== "ArrowUp" && event.key !== "ArrowDown") return;
+    const direction =
+      event.key === "ArrowUp" || event.key === "ArrowLeft"
+        ? -1
+        : event.key === "ArrowDown" || event.key === "ArrowRight"
+          ? 1
+          : 0;
+    if (!direction) return;
 
     event.preventDefault();
     event.stopPropagation();
@@ -117,7 +123,7 @@ function NavSelect(props: SelectProps) {
     const nextOption = nextSelectOption(
       props.options,
       props.value,
-      event.key === "ArrowUp" ? -1 : 1,
+      direction,
     );
     if (!nextOption) return;
     props.onChange?.(nextOption.value, nextOption);
