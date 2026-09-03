@@ -2,7 +2,7 @@
  * 表格单元格键盘导航。
  *
  * 目标：在 Form.List + Table 的可编辑单元格之间，用方向键 / Enter 移动焦点，
- * 体验接近 Excel（同一列上下跳、同一行左右跳）。
+ * 体验接近 Excel（同一列上下跳、同一行左右跳；Enter 下一格，行末换行）。
  *
  * ---------------------------------------------------------------------------
  * DOM 约定（与 columns.tsx 配合）
@@ -146,6 +146,26 @@ function shouldMoveFromTextControl(
 }
 
 /**
+ * 文本是否处于全选。回车进格后会是这个状态。
+ * 空内容不算：没有字符可走，左键应保持默认（或后续跳格判断）。
+ */
+function isAllSelected(el: HTMLInputElement | HTMLTextAreaElement) {
+  const { length } = el.value;
+  return (
+    length > 0 && el.selectionStart === 0 && el.selectionEnd === length
+  );
+}
+
+/**
+ * 全选时按 ←：取消选区，光标落到最后一个字符前，再按 ← 继续往开头走。
+ * 浏览器默认是收到起选区（跳到最前面），和「从后面往前挪」相反。
+ */
+function moveCaretFromEnd(el: HTMLInputElement | HTMLTextAreaElement) {
+  const next = Math.max(0, el.value.length - 1);
+  el.setSelectionRange(next, next);
+}
+
+/**
  * 根据当前格坐标和按键，算出「想去」的下一格行列。
  *
  * 只做算术，不查 DOM、不处理越界。
@@ -153,21 +173,57 @@ function shouldMoveFromTextControl(
  * 由调用方再 query `[data-nav-row][data-nav-col]` 决定是否真的跳。
  *
  * - ↑：上一行同一列
- * - ↓ / Enter：下一行同一列（Enter 映射成向下，不当提交）
+ * - ↓：下一行同一列
  * - ← →：同一行左右一列
+ * - Enter 不走这里，见 nextEnterPosition（下一格；行末换到下行第一格）
  */
-function nextCellPosition(row: number, col: number, key: NavKey) {
+function nextCellPosition(row: number, col: number, key: Exclude<NavKey, "Enter">) {
   switch (key) {
     case "ArrowUp":
       return { row: row - 1, col };
     case "ArrowDown":
-    case "Enter":
       return { row: row + 1, col };
     case "ArrowLeft":
       return { row, col: col - 1 };
     case "ArrowRight":
       return { row, col: col + 1 };
   }
+}
+
+/**
+ * 收集表体里真实存在的可导航格，按行优先、列次之排序。
+ * 去掉测量行和重复坐标（横向滚动时 Ant Design 可能渲染两份单元格）。
+ */
+function listNavPositions(root: HTMLElement) {
+  const seen = new Set<string>();
+  const positions: { row: number; col: number }[] = [];
+  root
+    .querySelectorAll<HTMLElement>(
+      `.ant-table-tbody tr:not(.ant-table-measure-row) ${CELL_SELECTOR}`,
+    )
+    .forEach((el) => {
+      const nextRow = Number(el.dataset.navRow);
+      const nextCol = Number(el.dataset.navCol);
+      if (Number.isNaN(nextRow) || Number.isNaN(nextCol)) return;
+      const key = `${nextRow}:${nextCol}`;
+      if (seen.has(key)) return;
+      seen.add(key);
+      positions.push({ row: nextRow, col: nextCol });
+    });
+  positions.sort((a, b) => a.row - b.row || a.col - b.col);
+  return positions;
+}
+
+/**
+ * Enter 的下一格：同一行右边最近的可编辑格；行末折到下一行第一格。
+ * 已经在最后一行最后一列时返回 null，停在当前格。
+ */
+function nextEnterPosition(root: HTMLElement, row: number, col: number) {
+  const positions = listNavPositions(root);
+  return (
+    positions.find((p) => p.row > row || (p.row === row && p.col > col)) ??
+    null
+  );
 }
 
 /**
@@ -194,10 +250,12 @@ function getFocusable(cell: HTMLElement): HTMLElement | null {
 }
 
 /**
- * 跳进文本格后，按「从哪边进来」放置光标，方便接着打字。
+ * 跳进文本格后，按「从哪边进来」放置光标 / 选区。
  *
+ * - Enter / ↑ / ↓ 进来：全选。直接打字覆盖；← 从最后面向前移，
+ *   → 有选区时不跳格，交给浏览器收起选区后再定位。
  * - → 进来：光标放到开头（接着往右读 / 在开头插入）。
- * - ← ↑ ↓ Enter 进来：光标放到末尾（接着往左改或在末尾追加）。
+ * - ← 进来：光标放到末尾（接着往左改或在末尾追加）。
  *
  * 只处理原生 input / textarea。
  * Select、DatePicker 内部也有 input，但改它们的 selection 会干扰搜索词或日期编辑，
@@ -213,6 +271,10 @@ function applyCaret(el: HTMLElement, key: NavKey) {
   if (el.closest(".ant-select") || el.closest(".ant-picker")) return;
 
   const { length } = el.value;
+  if (key === "Enter" || key === "ArrowUp" || key === "ArrowDown") {
+    el.setSelectionRange(0, length);
+    return;
+  }
   if (key === "ArrowRight") {
     el.setSelectionRange(0, 0);
     return;
@@ -287,12 +349,13 @@ function focusCell(root: HTMLElement, row: number, col: number, key: NavKey) {
  * 3. 输入法拼写中（isComposing 或 keyCode 229）→ 忽略，否则选词时会跳格。
  * 4. 焦点不在可导航格内（点到操作列删除按钮等）→ 忽略。
  * 5. 下拉 / 日期面板已开 → 忽略，方向键给面板用。
- * 6. 纯文本框且光标未到头 → 忽略，左右键先移光标。
- * 7. 算下一格坐标；若 DOM 里没有这一格：
- *    - ↑↓ Enter：preventDefault + stopPropagation，防止 InputNumber 改数字，
- *      然后停在当前格。
+ * 6. 纯文本全选且按 ← → 拦住默认「收到开头」，改为从最后面向前移一格。
+ * 7. 纯文本框且光标未到头 → 忽略，左右键先移光标。
+ * 8. 算下一格坐标；若 DOM 里没有这一格：
+ *    - ↑↓ Enter：preventDefault + stopPropagation，防止 InputNumber 改数字
+ *      或表单被提交，然后停在当前格（最后一行最后一列回车也走这里）。
  *    - ← →：不拦截，让浏览器继续处理（例如光标已在头仍按左，保持默认）。
- * 8. 下一格存在：拦住本次按键，queueMicrotask 后再 focusCell。
+ * 9. 下一格存在：拦住本次按键，queueMicrotask 后再 focusCell。
  *    不用同步 focus 的原因：当前 keydown 若已被 stopPropagation，
  *    同步触发的 Form onBlur / onFocus 会嵌在这个残缺事件栈里，
  *    校验、touched、受控值可能错乱。等 keydown 完全结束后再切焦点。
@@ -310,6 +373,17 @@ export function useTableKeyboardNav() {
     if (isPopupOpen(cell)) return;
 
     if (
+      event.key === "ArrowLeft" &&
+      isTextControl(event.target) &&
+      isAllSelected(event.target)
+    ) {
+      event.preventDefault();
+      event.stopPropagation();
+      moveCaretFromEnd(event.target);
+      return;
+    }
+
+    if (
       isTextControl(event.target) &&
       !shouldMoveFromTextControl(event.target, event.key)
     ) {
@@ -320,17 +394,22 @@ export function useTableKeyboardNav() {
     const col = Number(cell.dataset.navCol);
     if (Number.isNaN(row) || Number.isNaN(col)) return;
 
-    const next = nextCellPosition(row, col, event.key);
     const root = cell.closest<HTMLElement>("[data-table-keyboard-nav]");
     if (!root) return;
 
+    const next =
+      event.key === "Enter"
+        ? nextEnterPosition(root, row, col)
+        : nextCellPosition(row, col, event.key);
+
     const hasNext = Boolean(
-      root.querySelector(
-        `[data-nav-row="${next.row}"][data-nav-col="${next.col}"]`,
-      ),
+      next &&
+        root.querySelector(
+          `[data-nav-row="${next.row}"][data-nav-col="${next.col}"]`,
+        ),
     );
 
-    if (!hasNext) {
+    if (!next || !hasNext) {
       if (
         event.key === "ArrowUp" ||
         event.key === "ArrowDown" ||
