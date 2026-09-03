@@ -10,6 +10,7 @@
  * - 「电话」「紧急联系人」「紧急联系人电话」只读，没有 NavCell，方向键会跳过。
  * - Select / DatePicker 用 NavSelect、NavDatePicker：收到 TABLE_NAV_OPEN_EVENT 后打开面板。
  * - Select 聚焦时 Ctrl+↑ / Ctrl+↓ 切换上一个 / 下一个选项，到头不再循环。
+ * - DatePicker 聚焦时 Ctrl+↑↓ 加减 7 天，Ctrl+←→ 加减 1 天。
  */
 import {
   useEffect,
@@ -140,10 +141,48 @@ function NavSelect(props: SelectProps) {
   );
 }
 
+/** DatePicker 聚焦时 Ctrl+方向键的天数偏移。 */
+const DATE_CTRL_OFFSET = {
+  ArrowUp: -7,
+  ArrowDown: 7,
+  ArrowLeft: -1,
+  ArrowRight: 1,
+} as const;
+
+/**
+ * 以当前日期为基准加减天数。
+ * 没有有效值时从今天起算，避免空格上 Ctrl+方向键没反应。
+ */
+function shiftPickerDate(current: DatePickerProps["value"], days: number) {
+  const base = dayjs.isDayjs(current) && current.isValid() ? current : dayjs();
+  return base.add(days, "day");
+}
+
 function NavDatePicker(props: DatePickerProps) {
   const { wrapRef, open, setOpen } = useNavPopup();
+
+  const onCtrlArrow = (event: KeyboardEvent<HTMLSpanElement>) => {
+    if (!event.ctrlKey || event.altKey || event.metaKey || event.shiftKey) {
+      return;
+    }
+    const days =
+      DATE_CTRL_OFFSET[event.key as keyof typeof DATE_CTRL_OFFSET];
+    if (days === undefined) return;
+
+    event.preventDefault();
+    event.stopPropagation();
+
+    const next = shiftPickerDate(props.value, days);
+    if (props.disabledDate?.(next, { type: "date" })) return;
+    props.onChange?.(next, next.format("YYYY-MM-DD"));
+  };
+
   return (
-    <span ref={wrapRef} style={{ display: "block" }}>
+    <span
+      ref={wrapRef}
+      style={{ display: "block" }}
+      onKeyDownCapture={onCtrlArrow}
+    >
       <DatePicker
         {...props}
         open={open}
