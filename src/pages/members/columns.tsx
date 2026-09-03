@@ -9,8 +9,15 @@
  * - col 必须连续且与视觉列一致，导航按这个坐标跳。
  * - 「电话」「紧急联系人」「紧急联系人电话」只读，没有 NavCell，方向键会跳过。
  * - Select / DatePicker 用 NavSelect、NavDatePicker：收到 TABLE_NAV_OPEN_EVENT 后打开面板。
+ * - Select 聚焦时 Ctrl+↑ / Ctrl+↓ 切换上一个 / 下一个选项，到头不再循环。
  */
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import {
+  useEffect,
+  useRef,
+  useState,
+  type KeyboardEvent,
+  type ReactNode,
+} from "react";
 import {
   Button,
   DatePicker,
@@ -51,10 +58,76 @@ function useNavPopup() {
   return { wrapRef, open, setOpen };
 }
 
+/**
+ * 可切换的选项：去掉禁用项，并摊平 group。
+ * Ctrl+↑↓ 只在这些项之间走，避免选到不能选的值。
+ */
+function getSelectableOptions(options: SelectProps["options"]) {
+  const flattened = (options ?? []).flatMap((opt) => {
+    if (opt && typeof opt === "object" && Array.isArray(opt.options)) {
+      return opt.options;
+    }
+    return [opt];
+  });
+  return flattened.filter(
+    (opt): opt is NonNullable<typeof opt> =>
+      Boolean(opt) &&
+      typeof opt === "object" &&
+      !opt.disabled &&
+      opt.value !== undefined,
+  );
+}
+
+/**
+ * 算出 Ctrl+↑ / Ctrl+↓ 的下一项。
+ * 已经在第一项再向上、最后一项再向下：返回 undefined，调用方不改值。
+ * 当前没有值时：只允许向下落到第一项。
+ */
+function nextSelectOption(
+  options: SelectProps["options"],
+  current: SelectProps["value"],
+  direction: -1 | 1,
+) {
+  const items = getSelectableOptions(options);
+  if (items.length === 0) return undefined;
+
+  const index = items.findIndex((opt) => opt.value === current);
+  if (index === -1) {
+    return direction === 1 ? items[0] : undefined;
+  }
+
+  const next = index + direction;
+  if (next < 0 || next >= items.length) return undefined;
+  return items[next];
+}
+
 function NavSelect(props: SelectProps) {
   const { wrapRef, open, setOpen } = useNavPopup();
+
+  const onCtrlArrow = (event: KeyboardEvent<HTMLSpanElement>) => {
+    if (!event.ctrlKey || event.altKey || event.metaKey || event.shiftKey) {
+      return;
+    }
+    if (event.key !== "ArrowUp" && event.key !== "ArrowDown") return;
+
+    event.preventDefault();
+    event.stopPropagation();
+
+    const nextOption = nextSelectOption(
+      props.options,
+      props.value,
+      event.key === "ArrowUp" ? -1 : 1,
+    );
+    if (!nextOption) return;
+    props.onChange?.(nextOption.value, nextOption);
+  };
+
   return (
-    <span ref={wrapRef} style={{ display: "block" }}>
+    <span
+      ref={wrapRef}
+      style={{ display: "block" }}
+      onKeyDownCapture={onCtrlArrow}
+    >
       <Select
         {...props}
         open={open}
