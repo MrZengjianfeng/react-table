@@ -38,6 +38,8 @@ let _instance: AxiosInstance | null = null;
 let _unauthorizedHandler: UnauthorizedHandler | null = null;
 // 刷新锁：true 表示正在请求 /api/auth/refresh，其它 401 只能进队列
 let refreshing = false;
+// 会话代数：登出时自增。持锁 refresh 回来后若代数变了，说明中途已登出，结果必须丢弃
+let authEpoch = 0;
 // 等待刷新的请求队列：并发 401 时先挂在这里，刷新完再一起重放
 const queue: PendingRequest[] = [];
 
@@ -51,7 +53,7 @@ export function getApiBaseUrl(): string {
     return envBaseUrl.endsWith("/") ? envBaseUrl : `${envBaseUrl}/`;
   }
   // 没配环境变量：用当前页面协议+主机，再拼 /api/，适合同源代理
-  return `${window.location.protocol}//${window.location.host}/api/`;
+  return `${window.location.protocol}//${window.location.host}/`;
 }
 
 // 把普通对象转成 FormData，供 postForm / putForm 上传或表单提交
@@ -132,7 +134,11 @@ export function putForm(
 }
 
 // PUT 二进制流：直接把 File/Blob/ArrayBuffer 当 body，超时加长到 90 秒
-export function putStream(api: string, file: unknown = null, headers: object = {}) {
+export function putStream(
+  api: string,
+  file: unknown = null,
+  headers: object = {},
+) {
   // 大文件上传比普通 JSON 慢，所以单独放宽 timeout
   return getInstance().put(api, file, {
     // 额外请求头（例如自定义 Content-Type）
@@ -216,10 +222,10 @@ function redirectToLogin() {
 
 // 清队列 + 清 token + 跳登录：刷新彻底失败或不可刷新的 401 时走这里
 function clearTokensAndRedirect() {
+  // 作废当前会话：进行中的 refresh 即使成功也不能再写回 token / 重放
+  authEpoch += 1;
   // 取出并清空队列，后面这些请求都不会再重放
   const pending = queue.splice(0, queue.length);
-  // 解开刷新锁，避免异常路径上 refreshing 一直为 true
-  refreshing = false;
   // 让所有挂起的调用方收到失败，而不是永远 pending
   pending.forEach(({ reject }) => {
     // 统一错误文案，表示是主动清 token，不是接口返回的业务错误
@@ -229,6 +235,8 @@ function clearTokensAndRedirect() {
   removeAuthToken();
   // 回到登录页
   redirectToLogin();
+  // 不在这里改 refreshing：锁只由 processQueue 的 finally 释放，避免登出把锁解开后
+  // 飞着的 refresh 成功写回 token，同时再启动第二次 refresh
 }
 
 // 把新的 access token 写进即将重放的那条请求头
@@ -248,6 +256,8 @@ async function processQueue() {
   }
   // 抢到锁，后续 401 只能排队
   refreshing = true;
+  // 记下开锁时的会话代数；await 回来后若变了，说明中途已登出
+  const epoch = authEpoch;
   // 刷新过程可能失败，用 try/catch/finally 保证锁一定会被释放
   try {
     // 从本地取出长期令牌
@@ -273,6 +283,11 @@ async function processQueue() {
         headers: { "Content-Type": "application/json" },
       },
     );
+    // 持锁期间若已被挤下线/清 token，丢弃这次换票，绝不能 setAuthToken 写回去
+    if (epoch !== authEpoch) {
+      // finally 仍会释放锁；队列已在登出路径被拒绝
+      return;
+    }
     // axios 的 data 才是响应体
     const body = response.data;
     // 兼容两种返回：{ code:200, data:{...} } 或直接 { accessToken, refreshToken }
@@ -290,6 +305,7 @@ async function processQueue() {
     // 先落到 localStorage，后续新请求的拦截器也能读到新 token
     setAuthToken(accessToken, newRefreshToken);
 
+    // 始删掉当前全部元素，原地把 queue 变成 []，同时把删掉的项作为返回值交给 pending
     // 把当前队列全部取出；刷新期间新入队的请求留给 finally 再处理
     const pending = queue.splice(0, queue.length);
     // 逐条用新 token 重放
@@ -303,6 +319,12 @@ async function processQueue() {
     });
     // 刷新接口报错、没有 refresh、没有 access，都到这里
   } catch (error) {
+    // 中途已经登出：队列和跳转都处理过了，不要再清一次、也不要二次跳登录
+    if (epoch !== authEpoch) {
+      // 交给 finally 释放锁
+      return;
+    }
+    // 始删掉当前全部元素，原地把 queue 变成 []，同时把删掉的项作为返回值交给 pending
     // 取出剩余排队请求（可能刷新中又进来了）
     const pending = queue.splice(0, queue.length);
     // 全部失败，错误原样传给调用方
@@ -311,7 +333,7 @@ async function processQueue() {
     clearTokensAndRedirect();
     // 无论成功失败，都必须释放锁
   } finally {
-    // 允许下一次刷新
+    // 允许下一次刷新；这是 refreshing = false 的唯一出口
     refreshing = false;
     // 刷新过程中又有新的 401 入队：锁已释放，再跑一轮
     if (queue.length > 0) {
@@ -353,14 +375,8 @@ function getInstance() {
     (sysConfig) => {
       // 读本地 access token；未登录则为 null，下面就不带 Authorization
       const authToken = getAuthToken();
-      // FormData 必须让浏览器自己设 multipart boundary，不能写成 application/json
-      const isFormData = sysConfig.data instanceof FormData;
-
-      // JSON 请求才强制 Content-Type
-      if (!isFormData) {
-        // 告诉后端 body 是 JSON
-        sysConfig.headers.set("Content-Type", "application/json");
-      }
+      // 告诉后端 body 是 JSON
+      sysConfig.headers.set("Content-Type", "application/json");
       // 希望后端按 JSON 返回（blob 下载仍由 responseType 控制）
       sysConfig.headers.set("accept", "application/json");
       // 已登录才带鉴权头
@@ -368,20 +384,6 @@ function getInstance() {
         // 双 token：Authorization 只放 access，refresh 绝不放到普通请求头
         sysConfig.headers.set("Authorization", `Bearer ${authToken}`);
       }
-
-      // 仅对“有 JSON body 的 POST”做浅拷贝，避免调用方后续改对象影响到已发出的配置
-      if (
-        // 只处理 post；get 没有 data
-        sysConfig.method === "post" &&
-        // 有 body
-        sysConfig.data != null &&
-        // FormData 不能展开拷贝，展开会变成普通对象丢掉文件
-        !isFormData
-      ) {
-        // 浅拷贝一层字段
-        sysConfig.data = { ...sysConfig.data };
-      }
-
       // 必须把 config 交还给 axios，请求才会继续发出
       return sysConfig;
     },
@@ -416,7 +418,6 @@ function getInstance() {
         // 不刷新、不登出
         return Promise.reject(error);
       }
-
       // 可刷新的 401，且这条还没重试过，且确实有原配置
       if (isRefreshableUnauthorized(response) && config && !config._retry) {
         // 刷新接口自己 401：refresh 也废了，不能再刷新
